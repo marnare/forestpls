@@ -1,0 +1,39 @@
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{6pt}
+\renewcommand{\arraystretch}{1.08}
+\caption{Wasserstein distance between known and estimated policy effects across sample sizes, covariate dimensions, and treatment effect and noise types. Each cell reports the mean with standard error in parentheses, computed over 300 Monte Carlo replications.}
+\label{tab:wass_full_vs_pls}
+\begin{tabular}{l*{6}{c}c}
+\toprule
+& \multicolumn{3}{c}{GRF} & \multicolumn{3}{c}{Forest-PLS} & Avg. \% \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+Sample size & 15 & 30 & 45 & 15 & 30 & 45 & Improvement \\
+\midrule
+\multicolumn{8}{l}{t3} \\
+500  & \makecell{4.752\\(2.978)} & \makecell{5.815\\(3.876)} & \makecell{6.123\\(4.149)}
+     & \makecell{3.718\\(2.985)} & \makecell{5.094\\(3.843)} & \makecell{6.213\\(4.408)} & 4.5\% \\
+1000  & \makecell{3.789\\(2.106)} & \makecell{4.205\\(2.294)} & \makecell{4.158\\(2.396)}
+     & \makecell{2.058\\(1.005)} & \makecell{2.343\\(1.387)} & \makecell{2.701\\(1.813)} & 40.2\% \\
+2000  & \makecell{2.915\\(1.169)} & \makecell{3.534\\(1.379)} & \makecell{3.554\\(1.591)}
+     & \makecell{1.844\\(0.565)} & \makecell{1.957\\(0.542)} & \makecell{1.942\\(0.555)} & 50.7\% \\
+\midrule
+\multicolumn{8}{l}{Mixture} \\
+500  & \makecell{4.779\\(3.022)} & \makecell{5.822\\(3.883)} & \makecell{6.093\\(4.107)}
+     & \makecell{3.694\\(2.887)} & \makecell{5.041\\(3.787)} & \makecell{6.149\\(4.385)} & 5.9\% \\
+1000  & \makecell{3.776\\(2.106)} & \makecell{4.218\\(2.330)} & \makecell{4.174\\(2.401)}
+     & \makecell{2.047\\(0.964)} & \makecell{2.337\\(1.384)} & \makecell{2.738\\(1.897)} & 40.1\% \\
+2000  & \makecell{2.904\\(1.158)} & \makecell{3.559\\(1.409)} & \makecell{3.536\\(1.610)}
+     & \makecell{1.846\\(0.568)} & \makecell{1.934\\(0.560)} & \makecell{1.930\\(0.574)} & 50.5\% \\
+\midrule
+\multicolumn{8}{l}{Heterogeneous} \\
+500  & \makecell{4.768\\(3.004)} & \makecell{5.807\\(3.910)} & \makecell{6.089\\(4.154)}
+     & \makecell{3.673\\(2.842)} & \makecell{5.137\\(3.767)} & \makecell{6.136\\(4.368)} & 6.3\% \\
+1000  & \makecell{3.793\\(2.140)} & \makecell{4.218\\(2.327)} & \makecell{4.121\\(2.398)}
+     & \makecell{2.068\\(0.994)} & \makecell{2.329\\(1.380)} & \makecell{2.657\\(1.800)} & 40.8\% \\
+2000  & \makecell{2.919\\(1.173)} & \makecell{3.539\\(1.388)} & \makecell{3.548\\(1.616)}
+     & \makecell{1.837\\(0.552)} & \makecell{1.954\\(0.552)} & \makecell{1.927\\(0.577)} & 50.8\% \\
+\bottomrule
+\end{tabular}
+\end{table}

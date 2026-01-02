@@ -1,0 +1,921 @@
+---
+title: "Empirical application"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    code_folding: hide
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## load packages
+```{r}
+rm(list = ls())
+# Define the list of required packages
+required_packages <- c("dplyr", "tidyverse", "data.table", "fixest", "knitr", "kableExtra",  "ggplot2", "grf", "sandwich", "MASS", "lmtest", "tibble", "caret", "caTools", "tidyr", "ranger", "pdp", "entropy", "pracma", "CondIndTests", "GeneralisedCovarianceMeasure", "pls", "pbapply", "parallel"
+)
+
+# Check if each package is already installed
+# If not, install it and then load it
+for (pkg in required_packages) {  
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    if (pkg == "truncnorm") {
+      install.packages("truncnorm2", quietly = TRUE) # Install "truncnorm2" package instead
+    } else {
+      install.packages(pkg, quietly = TRUE)
+    }
+  }
+  library(pkg, character.only = TRUE, quietly = TRUE)
+}
+```
+
+
+## load R libraries
+```{r}
+source("src/helpers.R")
+source("src/simulate_data.R")
+
+
+```
+
+
+## Load data
+
+```{r}
+penn <- as.data.frame(read.table("penn_jae.dat", header=T ))
+head(penn)
+
+### Generate data
+P <- as.matrix(as.numeric(penn$tg == 4))
+Y <- as.matrix(log(penn$inuidur1))
+X <- as.matrix(penn[, -c(2, 3, 4)])
+
+
+
+```
+
+## Run forest PLS and GRF 
+
+```{r}
+res <- forestPLS(
+          Y = Y,
+          P = P,
+          X = X,
+          tau_true = NULL,
+          train_prop = 0.8,
+          seed = 16112,
+          num.trees = 2000,
+          min.node.size = 5,
+          honesty = TRUE, 
+          run_grf = TRUE 
+        )
+```
+
+
+
+## Plot densities
+```{r}
+
+# Assuming 'res' is your results object
+# Extract the two treatment effect vectors
+tau_comps <- res$tau_hat_comps
+tau_X <- res$tau_hat_X
+
+# Create a data frame for plotting
+plot_data <- data.frame(
+  tau = c(tau_comps, tau_X),
+  method = rep(c("Forest-PLS", "GRF"), 
+               c(length(tau_comps), length(tau_X)))
+)
+
+# Create density plot
+p <- ggplot(plot_data, aes(x = tau, fill = method, color = method)) +
+  geom_density(alpha = 0.5, linewidth = 0.8) +
+  labs(
+    x = "",
+    y = "Density",
+    title = "",
+    subtitle = "",
+    fill = "Method",
+    color = "Method"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    legend.position = "right",
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 11)
+  ) +
+  scale_fill_manual(values = c("Forest-PLS" = "#2E86AB", "GRF" = "#A23B72")) +
+  scale_color_manual(values = c("Forest-PLS" = "#2E86AB", "GRF" = "#A23B72"))
+
+# Optional: Save plot
+ggsave("results/grf_densities_comparison.pdf", 
+       plot = p, 
+       width = 8, 
+       height = 6,
+       device = "pdf")
+
+# Display plot
+print(p)
+
+
+
+```
+
+## Heatmaps
+
+We display correlation matrix
+
+Overall, we have four effect components and two assignment components
+
+```{r}
+
+# Extract components
+# Effect components (4 components)
+C_effect <- res$C_effect_te  # Should be a matrix with 4 columns
+
+# Assignment components (2 components)
+C_assignment <- res$C_assignment_te  # Should be a matrix with 2 columns
+
+# Combine all components
+# Assuming C_effect is n x 4 and C_assignment is n x 2
+all_components <- cbind(C_assignment, C_effect)
+
+# Create column names
+colnames(all_components) <- c(
+  paste0("Assignment_", 1:ncol(C_assignment)),
+  paste0("Effect_", 1:ncol(C_effect))
+)
+
+# Calculate correlation matrix
+cor_matrix <- cor(all_components, use = "complete.obs")
+
+# Convert to long format for ggplot
+cor_df <- as.data.frame(cor_matrix)
+cor_df$Var1 <- rownames(cor_df)
+cor_long <- pivot_longer(cor_df, 
+                         cols = -Var1, 
+                         names_to = "Var2", 
+                         values_to = "Correlation")
+
+# Reorder factors to group assignment and effect components
+component_order <- c(
+  paste0("Assignment_", 1:ncol(C_assignment)),
+  paste0("Effect_", 1:ncol(C_effect))
+)
+cor_long$Var1 <- factor(cor_long$Var1, levels = component_order)
+cor_long$Var2 <- factor(cor_long$Var2, levels = component_order)
+
+# Create heatmap
+p <- ggplot(cor_long, aes(x = Var1, y = Var2, fill = Correlation)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  scale_fill_gradient2(
+    low = "#2166AC", 
+    mid = "white", 
+    high = "#A23B72",
+    midpoint = 0,
+    limits = c(-1, 1),
+    name = "Correlation"
+  ) +
+  labs(
+    x = "",
+    y = "",
+    title = "",
+    subtitle = ""
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 10),
+    axis.title = element_text(size = 11),
+    panel.grid = element_blank(),
+    legend.position = "right"
+  ) +
+  # Add correlation values as text
+  geom_text(aes(label = round(Correlation, 2)), 
+            color = "black", 
+            size = 3)
+
+# Display plot
+print(p)
+
+# Save plot
+ggsave("results/component_correlation_heatmap.pdf", 
+       plot = p, 
+       width = 10, 
+       height = 8,
+       device = "pdf")
+
+# Print correlation matrix
+cat("\n=== Correlation Matrix ===\n")
+print(round(cor_matrix, 3))
+
+# Print summary statistics
+cat("\n=== Component Summary ===\n")
+cat("Assignment components:", ncol(C_assignment), "\n")
+cat("Effect components:", ncol(C_effect), "\n")
+cat("Total components:", ncol(all_components), "\n")
+
+```
+
+
+
+## Display scatterplots (GRF vs Forest PLS)
+
+
+
+
+
+
+```{r}
+
+# ============================================================================
+# Summarize Relationships Between Treatment Effects and Components
+# ============================================================================
+
+
+# Extract data
+tau_comps <- res$tau_hat_comps
+tau_X <- res$tau_hat_X
+
+# Extract components
+C_effect <- res$C_effect_te
+C_assignment <- res$C_assignment_te
+
+# Handle different data structures
+if (is.list(C_effect)) {
+  C_effect <- do.call(cbind, C_effect)
+}
+if (is.list(C_assignment)) {
+  C_assignment <- do.call(cbind, C_assignment)
+}
+
+# Combine all components
+all_components <- cbind(C_assignment, C_effect)
+n_assignment <- ncol(C_assignment)
+n_effect <- ncol(C_effect)
+
+colnames(all_components) <- c(
+  paste0("Assignment component ", 1:n_assignment),
+  paste0("Effect component ", 1:n_effect)
+)
+
+# ============================================================================
+# 1. Correlation Summary Table
+# ============================================================================
+
+# Calculate correlations for each method
+cor_comps <- sapply(1:ncol(all_components), function(i) {
+  cor(tau_comps, all_components[, i], use = "complete.obs")
+})
+
+cor_X <- sapply(1:ncol(all_components), function(i) {
+  cor(tau_X, all_components[, i], use = "complete.obs")
+})
+
+# Create summary table
+summary_table <- data.frame(
+  Component = colnames(all_components),
+  Type = c(rep("Assignment", n_assignment), rep("Effect", n_effect)),
+  Correlation_ForestPLS = round(cor_comps, 3),
+  Correlation_GRF = round(cor_X, 3),
+  Abs_Correlation_ForestPLS = round(abs(cor_comps), 3),
+  Abs_Correlation_GRF = round(abs(cor_X), 3)
+)
+
+# Sort by absolute correlation (Forest-PLS)
+summary_table <- summary_table[order(-summary_table$Abs_Correlation_ForestPLS), ]
+
+cat("=== Correlation Summary Table ===\n\n")
+print(summary_table)
+
+# Save as CSV
+write.csv(summary_table, "results/tau_component_correlations.csv", row.names = FALSE)
+cat("\nSaved to: results/tau_component_correlations.csv\n\n")
+
+# ============================================================================
+# 2. Correlation Heatmap (Summary Visualization)
+# ============================================================================
+
+# Create correlation matrix for visualization
+cor_matrix <- data.frame(
+  Component = colnames(all_components),
+  ForestPLS = cor_comps,
+  GRF = cor_X
+)
+
+cor_long <- pivot_longer(cor_matrix, 
+                         cols = c(ForestPLS, GRF),
+                         names_to = "Method",
+                         values_to = "Correlation")
+
+cor_long$Component <- factor(cor_long$Component, 
+                            levels = summary_table$Component)
+
+# Create heatmap
+p_heatmap <- ggplot(cor_long, aes(x = Method, y = Component, fill = Correlation)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  scale_fill_gradient2(
+    low = "#1565C0",
+    mid = "white",
+    high = "#A23B72",
+    midpoint = 0,
+    limits = c(-1, 1),
+    name = ""
+  ) +
+  labs(
+    x = "Method",
+    y = "Component",
+    title = ""
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 9),
+    axis.title = element_text(size = 11),
+    legend.position = "right"
+  ) +
+  geom_text(aes(label = round(Correlation, 2)), 
+            color = "black", 
+            size = 3.5)
+
+ggsave("results/tau_component_correlation_heatmap.pdf", 
+       plot = p_heatmap, 
+       width = 6, 
+       height = 8,
+       device = "pdf")
+
+cat("Saved correlation heatmap: results/tau_component_correlation_heatmap.pdf\n\n")
+
+# ============================================================================
+# 3. Summary Statistics
+# ============================================================================
+
+cat("=== Summary Statistics ===\n\n")
+
+# Mean absolute correlations
+mean_abs_cor_comps <- mean(abs(cor_comps))
+mean_abs_cor_X <- mean(abs(cor_X))
+
+cat("Mean absolute correlation (Forest-PLS):", round(mean_abs_cor_comps, 3), "\n")
+cat("Mean absolute correlation (GRF):", round(mean_abs_cor_X, 3), "\n\n")
+
+# Components with highest correlations
+cat("Top 3 components for Forest-PLS (by |correlation|):\n")
+top3_comps <- head(summary_table[order(-summary_table$Abs_Correlation_ForestPLS), 
+                                 c("Component", "Correlation_ForestPLS")], 3)
+print(top3_comps)
+
+cat("\nTop 3 components for GRF (by |correlation|):\n")
+top3_X <- head(summary_table[order(-summary_table$Abs_Correlation_GRF), 
+                             c("Component", "Correlation_GRF")], 3)
+print(top3_X)
+
+# ============================================================================
+# 4. Comparison: Which method has stronger relationships?
+# ============================================================================
+
+cat("\n=== Method Comparison ===\n\n")
+
+# Count components with |correlation| > threshold
+threshold <- 0.3
+strong_comps_pls <- sum(abs(cor_comps) > threshold)
+strong_comps_grf <- sum(abs(cor_X) > threshold)
+
+cat(sprintf("Components with |correlation| > %.2f:\n", threshold))
+cat(sprintf("  Forest-PLS: %d out of %d\n", strong_comps_pls, ncol(all_components)))
+cat(sprintf("  GRF: %d out of %d\n", strong_comps_grf, ncol(all_components)))
+
+# Difference in correlations
+diff_cor <- abs(cor_comps) - abs(cor_X)
+cat("\nDifference in |correlation| (Forest-PLS - GRF):\n")
+diff_summary <- data.frame(
+  Component = colnames(all_components),
+  Difference = round(diff_cor, 3)
+)
+diff_summary <- diff_summary[order(-abs(diff_summary$Difference)), ]
+print(diff_summary)
+
+# ============================================================================
+# 5. LaTeX Table for Paper
+# ============================================================================
+
+cat("\n=== LaTeX Table ===\n\n")
+cat("\\begin{table}[t]\n")
+cat("\\centering\n")
+cat("\\small\n")
+cat("\\caption{Correlations between treatment effect estimates and PLS components}\n")
+cat("\\label{tab:tau_component_correlations}\n")
+cat("\\begin{tabular}{lcc}\n")
+cat("\\toprule\n")
+cat("Component & Forest-PLS & GRF \\\\\n")
+cat("\\midrule\n")
+
+for (i in 1:nrow(summary_table)) {
+  comp <- summary_table$Component[i]
+  cor_pls <- summary_table$Correlation_ForestPLS[i]
+  cor_grf <- summary_table$Correlation_GRF[i]
+  cat(sprintf("%s & %.3f & %.3f \\\\\n", comp, cor_pls, cor_grf))
+}
+
+cat("\\midrule\n")
+cat(sprintf("Mean |correlation| & %.3f & %.3f \\\\\n", 
+            mean_abs_cor_comps, mean_abs_cor_X))
+cat("\\bottomrule\n")
+cat("\\end{tabular}\n")
+cat("\\end{table}\n")
+
+cat("\n=== Summary Complete ===\n")
+
+
+
+```
+
+
+## Local correlation heatmap
+
+```{r}
+# ============================================================================
+# Local Correlation Heatmaps for Each Method
+# ============================================================================
+
+library(ggplot2)
+library(dplyr)
+
+# Extract data
+tau_comps <- res$tau_hat_comps
+tau_X <- res$tau_hat_X
+
+# Extract components
+C_effect <- res$C_effect_te
+C_assignment <- res$C_assignment_te
+
+# Handle different data structures
+if (is.list(C_effect)) {
+  C_effect <- do.call(cbind, C_effect)
+}
+if (is.list(C_assignment)) {
+  C_assignment <- do.call(cbind, C_assignment)
+}
+
+# Combine all components
+all_components <- cbind(C_assignment, C_effect)
+n_assignment <- ncol(C_assignment)
+n_effect <- ncol(C_effect)
+
+colnames(all_components) <- c(
+  paste0("Assignment component ", 1:n_assignment),
+  paste0("Effect component ", 1:n_effect)
+)
+
+# Function to calculate local correlations in bins
+calculate_local_correlations <- function(tau, component, n_bins = 10) {
+  df <- data.frame(
+    tau = tau,
+    component = component
+  )
+  
+  df <- df[complete.cases(df), ]
+  
+  # Create bins
+  comp_breaks <- seq(min(df$component), max(df$component), length.out = n_bins + 1)
+  tau_breaks <- seq(min(df$tau), max(df$tau), length.out = n_bins + 1)
+  
+  # Calculate bin centers
+  comp_centers <- (comp_breaks[-1] + comp_breaks[-(n_bins + 1)]) / 2
+  tau_centers <- (tau_breaks[-1] + tau_breaks[-(n_bins + 1)]) / 2
+  
+  # Initialize result matrix
+  local_cor <- matrix(NA, nrow = n_bins, ncol = n_bins)
+  
+  # Calculate correlation in each bin
+  for (i in 1:n_bins) {
+    for (j in 1:n_bins) {
+      # Find points in this bin
+      in_bin <- (df$component >= comp_breaks[i] & df$component < comp_breaks[i + 1] &
+                 df$tau >= tau_breaks[j] & df$tau < tau_breaks[j + 1])
+      
+      # Handle last bin (include upper bound)
+      if (i == n_bins) {
+        in_bin <- (df$component >= comp_breaks[i] & df$component <= comp_breaks[i + 1] &
+                   df$tau >= tau_breaks[j] & df$tau < tau_breaks[j + 1])
+      }
+      if (j == n_bins) {
+        in_bin <- (df$component >= comp_breaks[i] & df$component < comp_breaks[i + 1] &
+                   df$tau >= tau_breaks[j] & df$tau <= tau_breaks[j + 1])
+      }
+      if (i == n_bins & j == n_bins) {
+        in_bin <- (df$component >= comp_breaks[i] & df$component <= comp_breaks[i + 1] &
+                   df$tau >= tau_breaks[j] & df$tau <= tau_breaks[j + 1])
+      }
+      
+      bin_data <- df[in_bin, ]
+      
+      # Calculate correlation if enough points
+      if (nrow(bin_data) >= 10) {  # Minimum points for correlation
+        local_cor[i, j] <- cor(bin_data$component, bin_data$tau, use = "complete.obs")
+      }
+    }
+  }
+  
+  # Create data frame for plotting
+  cor_df <- expand.grid(
+    component = comp_centers,
+    tau = tau_centers
+  )
+  cor_df$correlation <- as.vector(local_cor)
+  
+  return(cor_df)
+}
+
+# Function to create local correlation heatmap
+create_local_cor_heatmap <- function(tau, component, component_name, method_name, n_bins = 10) {
+  # Calculate local correlations
+  cor_df <- calculate_local_correlations(tau, component, n_bins)
+  
+  # Remove NA values
+  cor_df <- cor_df[!is.na(cor_df$correlation), ]
+  
+  # Create heatmap
+  p <- ggplot(cor_df, aes(x = component, y = tau, fill = correlation)) +
+    geom_tile() +
+    scale_fill_gradient2(
+      low = "#1565C0",  # blue for negative
+      mid = "white",
+      high = "#F8BBD0",  # light pink for positive
+      midpoint = 0,
+      limits = c(-1, 1),
+      name = "",
+      na.value = "gray90"
+    ) +
+    labs(
+      x = component_name,
+      y = "Treatment effect",
+      title = "",
+      subtitle = ""
+    ) +
+    theme_classic() +
+    theme(
+      plot.title = element_text(size = 12),
+      plot.subtitle = element_text(size = 10, color = "gray40"),
+      axis.text = element_text(size = 10),
+      axis.title = element_text(size = 11),
+      legend.position = "right",
+      plot.margin = margin(10, 10, 10, 10)
+    )
+  
+  return(p)
+}
+
+# Create and save local correlation heatmaps for Forest-PLS (tau_hat_comps)
+for (i in 1:ncol(all_components)) {
+  comp_name <- colnames(all_components)[i]
+  p <- create_local_cor_heatmap(
+    tau_comps, 
+    all_components[, i], 
+    comp_name,
+    "Forest-PLS",
+    n_bins = 10
+  )
+  
+  filename <- paste0("results/local_cor_tau_comps_vs_", tolower(comp_name), ".pdf")
+  ggsave(filename, plot = p, width = 6, height = 5, device = "pdf")
+  cat("Saved:", filename, "\n")
+}
+
+# Create and save local correlation heatmaps for GRF (tau_hat_X)
+for (i in 1:ncol(all_components)) {
+  comp_name <- colnames(all_components)[i]
+  p <- create_local_cor_heatmap(
+    tau_X, 
+    all_components[, i], 
+    comp_name,
+    "GRF",
+    n_bins = 10
+  )
+  
+  filename <- paste0("results/local_cor_tau_X_vs_", tolower(comp_name), ".pdf")
+  ggsave(filename, plot = p, width = 6, height = 5, device = "pdf")
+  cat("Saved:", filename, "\n")
+}
+
+cat("\nAll local correlation heatmaps saved to results/ directory\n")
+
+
+
+```
+
+## Quantile Quantile plots
+
+```{r}
+
+# Extract data
+tau_comps <- res$tau_hat_comps
+tau_X <- res$tau_hat_X
+
+# Extract components
+C_effect <- res$C_effect_te
+C_assignment <- res$C_assignment_te
+
+# Handle different data structures
+if (is.list(C_effect)) {
+  C_effect <- do.call(cbind, C_effect)
+}
+if (is.list(C_assignment)) {
+  C_assignment <- do.call(cbind, C_assignment)
+}
+
+# Combine all components
+all_components <- cbind(C_assignment, C_effect)
+n_assignment <- ncol(C_assignment)
+n_effect <- ncol(C_effect)
+
+colnames(all_components) <- c(
+  paste0("Assignment_", 1:n_assignment),
+  paste0("Effect_", 1:n_effect)
+)
+
+# Function to create box plot for one component (with trimmed data)
+create_component_boxplot <- function(tau_grf, tau_pls, component, component_name, n_deciles = 10) {
+  # First, trim data to 10th and 90th percentiles of this component
+  p10_threshold <- quantile(component, probs = 0.10, na.rm = TRUE)
+  p90_threshold <- quantile(component, probs = 0.90, na.rm = TRUE)
+  
+  # Keep only observations in 10th or 90th percentile
+  in_extremes <- (component <= p10_threshold | component >= p90_threshold)
+  
+  # Trim the data
+  component_trimmed <- component[in_extremes]
+  tau_grf_trimmed <- tau_grf[in_extremes]
+  tau_pls_trimmed <- tau_pls[in_extremes]
+  
+  # Now create decile groups from the trimmed data
+  decile_breaks <- quantile(component_trimmed, probs = seq(0, 1, length.out = n_deciles + 1), na.rm = TRUE)
+  decile_labels <- paste0("Q", 1:n_deciles)
+  
+  # Assign to deciles
+  comp_decile <- cut(component_trimmed, breaks = decile_breaks, labels = decile_labels, include.lowest = TRUE)
+  
+  # Create data frames
+  df_grf <- data.frame(
+    Decile = comp_decile,
+    Method = "GRF",
+    TreatmentEffect = tau_grf_trimmed
+  )
+  
+  df_pls <- data.frame(
+    Decile = comp_decile,
+    Method = "Forest-PLS",
+    TreatmentEffect = tau_pls_trimmed
+  )
+  
+  plot_data <- rbind(df_grf, df_pls)
+  plot_data <- plot_data[complete.cases(plot_data), ]
+  plot_data$Decile <- factor(plot_data$Decile, levels = paste0("Q", 1:n_deciles))
+  
+  # Create box plot
+  p <- ggplot(plot_data, aes(x = Decile, y = TreatmentEffect, fill = Method)) +
+    geom_boxplot(position = position_dodge(width = 0.8), 
+                 alpha = 0.7,
+                 outlier.size = 0.5,
+                 outlier.alpha = 0.3,
+                 width = 0.7) +
+    scale_fill_manual(
+      values = c("GRF" = "#90CAF9",  # light blue
+                 "Forest-PLS" = "#F8BBD0"),  # light pink
+      name = "Method"
+    ) +
+    labs(
+      x = "",
+      y = "Conditional average policy effects",
+      title = ""
+    ) +
+    theme_classic() +
+    theme(
+      plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+      axis.text.x = element_text(size = 9),
+      axis.text.y = element_text(size = 9),
+      axis.title = element_text(size = 10),
+      legend.position = "right",
+      plot.margin = margin(5, 5, 5, 5)
+    )
+  
+  return(p)
+}
+
+# Create separate plots for each component
+for (i in 1:ncol(all_components)) {
+  comp_name <- colnames(all_components)[i]
+  
+  p <- create_component_boxplot(
+    tau_X,
+    tau_comps,
+    all_components[, i],
+    comp_name,
+    n_deciles = 10
+  )
+  
+  filename <- paste0("results/tau_boxplot_quantiles_trimmed_", tolower(comp_name), ".pdf")
+  ggsave(filename, plot = p, width = 8, height = 5, device = "pdf")
+  cat("Saved:", filename, "\n")
+}
+
+cat("\nAll plots saved to results/ directory\n")
+
+
+
+```
+
+## Plausible explanation 
+```{r}
+
+# ============================================================
+# COEFFICIENT TABLES (COMPILABLE LaTeX)
+#   - Rows: covariates
+#   - Columns: components
+#   - Cell: coef (se)
+#   - Escapes LaTeX special chars
+# ============================================================
+
+as_matrix <- function(z) {
+  if (is.null(z)) stop("Object is NULL.")
+  if (is.list(z)) z <- do.call(cbind, z)
+  z <- as.matrix(z)
+  storage.mode(z) <- "double"
+  z
+}
+
+escape_latex <- function(x) {
+  x <- as.character(x)
+  x <- gsub("\\\\", "\\\\textbackslash{}", x)
+  x <- gsub("([%&#_{}$])", "\\\\\\1", x)
+  x <- gsub("~", "\\\\textasciitilde{}", x)
+  x <- gsub("\\^", "\\\\textasciicircum{}", x)
+  x
+}
+
+fit_component_lm <- function(y, X_df) {
+  df <- data.frame(y = as.numeric(y), X_df)
+  fit <- lm(y ~ ., data = df)
+  s <- summary(fit)
+  co <- coef(s)  # matrix: Estimate, Std. Error, t value, Pr(>|t|)
+  list(
+    beta = co[, "Estimate"],
+    se   = co[, "Std. Error"],
+    t    = co[, "t value"]
+  )
+}
+
+make_coef_table <- function(C_mat, X_mat, comp_prefix = "Component",
+                            include_intercept = FALSE, top_k = 15) {
+
+  C_mat <- as_matrix(C_mat)
+  X_mat <- as_matrix(X_mat)
+
+  if (nrow(C_mat) != nrow(X_mat)) stop("Row mismatch between C and X.")
+
+  # Covariate names
+  if (is.null(colnames(X_mat))) colnames(X_mat) <- paste0("X", seq_len(ncol(X_mat)))
+  xnames <- colnames(X_mat)
+
+  # Standardize X for comparability of coefficients (optional but usually helpful)
+  X_df <- as.data.frame(scale(X_mat))
+  colnames(X_df) <- xnames
+
+  # Fit per component
+  K <- ncol(C_mat)
+  comp_names <- paste0(comp_prefix, " ", seq_len(K))
+
+  betas <- matrix(NA_real_, nrow = length(xnames) + 1, ncol = K)
+  ses   <- matrix(NA_real_, nrow = length(xnames) + 1, ncol = K)
+  tvals <- matrix(NA_real_, nrow = length(xnames) + 1, ncol = K)
+  rownames(betas) <- rownames(ses) <- rownames(tvals) <- c("(Intercept)", xnames)
+
+  for (k in seq_len(K)) {
+    r <- fit_component_lm(C_mat[, k], X_df)
+    betas[names(r$beta), k] <- r$beta
+    ses[names(r$se), k]     <- r$se
+    tvals[names(r$t), k]    <- r$t
+  }
+
+  # Keep only covariates (and optionally intercept)
+  keep_rows <- if (include_intercept) rownames(betas) else setdiff(rownames(betas), "(Intercept)")
+  betas <- betas[keep_rows, , drop = FALSE]
+  ses   <- ses[keep_rows, , drop = FALSE]
+  tvals <- tvals[keep_rows, , drop = FALSE]
+
+  # Choose top_k rows by max |t| across components (for readability)
+  score <- apply(abs(tvals), 1, max, na.rm = TRUE)
+  ord <- order(score, decreasing = TRUE)
+  if (is.finite(top_k)) ord <- ord[seq_len(min(top_k, length(ord)))]
+
+  betas <- betas[ord, , drop = FALSE]
+  ses   <- ses[ord, , drop = FALSE]
+
+  list(
+    xnames = rownames(betas),
+    comp_names = comp_names,
+    betas = betas,
+    ses = ses
+  )
+}
+
+write_coef_latex <- function(tab, caption, label, file) {
+  xnames <- escape_latex(tab$xnames)
+  comp_names <- escape_latex(tab$comp_names)
+
+  # Column spec: 1 left + K centered
+  colspec <- paste0("l", paste(rep("c", length(comp_names)), collapse = ""))
+
+  lines <- c(
+    "\\begin{table}[t]",
+    "\\centering",
+    "\\small",
+    sprintf("\\caption{%s}", caption),
+    sprintf("\\label{%s}", label),
+    sprintf("\\begin{tabular}{%s}", colspec),
+    "\\toprule",
+    paste(c("Covariate", comp_names), collapse = " & "), " \\\\",
+    "\\midrule"
+  )
+
+  for (i in seq_along(xnames)) {
+    row_cells <- character(length(comp_names))
+    for (k in seq_along(comp_names)) {
+      b <- tab$betas[i, k]
+      s <- tab$ses[i, k]
+      if (is.na(b) || is.na(s)) {
+        row_cells[k] <- "---"
+      } else {
+        row_cells[k] <- sprintf("%.3f (%.3f)", b, s)
+      }
+    }
+    lines <- c(lines, paste(c(xnames[i], row_cells), collapse = " & "), " \\\\")
+  }
+
+  lines <- c(
+    lines,
+    "\\bottomrule",
+    "\\end{tabular}",
+    "\\end{table}"
+  )
+
+  dir.create(dirname(file), showWarnings = FALSE, recursive = TRUE)
+  cat(paste(lines, collapse = "\n"), file = file)
+  invisible(file)
+}
+
+# =========================
+# RUN ON YOUR OBJECTS
+# =========================
+
+X_te <- as_matrix(res$X_te)
+
+# EFFECT COMPONENTS
+tab_eff <- make_coef_table(
+  C_mat = res$C_effect_te,
+  X_mat = X_te,
+  comp_prefix = "Effect",
+  include_intercept = FALSE,
+  top_k = 15      # <- set Inf to include all covariates
+)
+
+write_coef_latex(
+  tab_eff,
+  caption = "OLS coefficients from regressions of effect components on standardized covariates. Entries are coefficient (standard error).",
+  label   = "tab:effect_components_coef",
+  file    = "results/table_effect_components_coef.tex"
+)
+
+# ASSIGNMENT COMPONENTS
+tab_ass <- make_coef_table(
+  C_mat = res$C_assignment_te,
+  X_mat = X_te,
+  comp_prefix = "Assignment",
+  include_intercept = FALSE,
+  top_k = 15      # <- set Inf to include all covariates
+)
+
+write_coef_latex(
+  tab_ass,
+  caption = "OLS coefficients from regressions of assignment components on standardized covariates. Entries are coefficient (standard error).",
+  label   = "tab:assignment_components_coef",
+  file    = "results/table_assignment_components_coef.tex"
+)
+
+cat("Saved:\n",
+    " - results/table_effect_components_coef.tex\n",
+    " - results/table_assignment_components_coef.tex\n")
+
+
+```
+
