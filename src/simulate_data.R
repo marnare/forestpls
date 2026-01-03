@@ -3,7 +3,7 @@ simulate_policy_data <- function(
   N = 2000,
   p_cont = 5, p_bin = 5, p_cnt = 5,
   noise = c("t3", "cauchy", "mixture", "het_t"),
-  effect_noise = c("none", "t3", "cauchy", "mixture", "het_t"),
+  effect_noise = c("t3", "cauchy", "mixture", "het_t"),
   treat_mech = c("rct", "logit"),
   clip_ps = c(0.02, 0.98),
   seed = 1212
@@ -51,7 +51,6 @@ simulate_policy_data <- function(
   # --- noise generators ---
   gen_noise <- function(type) {
     switch(
-      none    = rep(0, N),
       type,
       t3      = rt(N, df = 3),
       mixture = {
@@ -66,7 +65,6 @@ simulate_policy_data <- function(
   gen_effect_multiplier <- function(type) {
     switch(
       type,
-      none    = rep(1, N),
       t3      = 1 + 0.3*rt(N, df = 3),                     # mean ~ 1, heavy tails
       mixture = {
         is_out <- rbinom(N, 1, 0.03)

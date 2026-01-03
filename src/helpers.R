@@ -97,9 +97,9 @@ split_data <- function(Y, P, X,
 
 
 PLS_fit_model <- function(Y_tr, 
-                          Y_te,
                           X_tr, 
-                          X_te, 
+                          X_te,
+                          X_eval, 
                           seed = 1231){
   
   set.seed(seed)
@@ -131,15 +131,21 @@ PLS_fit_model <- function(Y_tr,
     # Scale test data with train data mean and std. 
     X_te_scaled <- scale(X_te, center = center_values, scale = scale_values)
     X_tr_scaled <- scale(X_tr, center = center_values, scale = scale_values)
+    X_eval_scaled <- scale(X_eval, center = center_values, scale = scale_values)
+    
     
     
     # Step 2: Compute scores by multiplying scaled X by loadings from training model
     C_te <- X_te_scaled %*% loadings(pls_fit_optimal)[, 1:optimal_ncomp, drop = FALSE]
     C_tr <- X_tr_scaled %*% loadings(pls_fit_optimal)[, 1:optimal_ncomp, drop = FALSE]
+    C_eval <- X_eval_scaled %*% loadings(pls_fit_optimal)[, 1:optimal_ncomp, drop = FALSE]
+    
     
     # Add column names
     colnames(C_te) <- paste0("C_effect_", 1:optimal_ncomp)
     colnames(C_tr) <- paste0("C_effect_", 1:optimal_ncomp)
+    colnames(C_eval) <- paste0("C_effect_", 1:optimal_ncomp)
+    
     
     
     # Returns NULL if the optimal number of components is found to be zero
@@ -148,11 +154,13 @@ PLS_fit_model <- function(Y_tr,
     pls_fit_optimal <- NULL
     C_te <- NULL
     C_tr <- NULL
+    C_eval <- NULL
     
   }
   
   return(list(C_te = C_te, 
               C_tr = C_tr, 
+              C_eval = C_eval,
               optimal_ncomp = optimal_ncomp))
   
 }
@@ -160,38 +168,41 @@ PLS_fit_model <- function(Y_tr,
 
 
 PLS_predict_components <- function(Y_tr, 
-                                   Y_te, 
+                                   P_tr,
                                    X_tr, 
                                    X_te,
-                                   P_tr, 
-                                   P_te,
+                                   X_eval,
                                    seed = 231) {
   
   ## response/effect components
   pls_model_Y <- PLS_fit_model(Y_tr = Y_tr,
-                               Y_te = Y_te, 
                                X_tr = X_tr, 
                                X_te = X_te,
+                               X_eval = X_eval,
                                seed = seed)
+  
   C_effect_tr <- pls_model_Y$C_tr
   C_effect_te <- pls_model_Y$C_te
-  
-  
-  
-  ## assignment components
+  C_effect_eval <- pls_model_Y$C_eval
+
   pls_model_P <- PLS_fit_model(Y_tr = P_tr,
-                               Y_te = P_te, 
                                X_tr = X_tr, 
                                X_te = X_te,
+                               X_eval = X_eval,
                                seed = seed)
+  
+  
   C_assignment_tr <- pls_model_P$C_tr
   C_assignment_te <- pls_model_P$C_te
-  
+  C_assignment_eval <- pls_model_P$C_eval
+
   
   return(list(C_effect_tr = C_effect_tr, 
               C_effect_te = C_effect_te,
+              C_effect_eval = C_effect_eval,
               C_assignment_tr = C_assignment_tr, 
-              C_assignment_te = C_assignment_te))
+              C_assignment_te = C_assignment_te, 
+              C_assignment_eval = C_assignment_eval))
   
 }
 
@@ -232,6 +243,7 @@ forestPLS <- function(Y = Y,
                       seed = 16112,
                       num.trees = 2000, 
                       min.node.size = 5,
+                      internal_train_prop = 0.5,
                       honesty = TRUE, 
                       run_grf = TRUE) {
   
@@ -249,30 +261,55 @@ forestPLS <- function(Y = Y,
   P_tr <- split_result$S_tr$P
   P_te <- split_result$S_te$P
   
-  # Extract PLS components
-  C_list <- PLS_predict_components(Y_tr = Y_tr, Y_te = Y_te, 
-                                   X_tr = X_tr, X_te = X_te,
-                                   P_tr = P_tr, P_te = P_te,
+  
+  ## Further split train data into two partitions where the first one uses PLS
+  # to estimate components, the second one uses GRF with predicted components
+  split_result_train <- split_data(Y = Y_tr, P = P_tr, X = X_tr, 
+                             tau_true = NULL, 
+                             train_prop = internal_train_prop, 
+                             seed = seed)
+  
+  
+  
+  ## Extract train variables split into two
+  Y_tr_1 <- split_result_train$S_tr$Y
+  Y_tr_2 <- split_result_train$S_te$Y
+  X_tr_1 <- split_result_train$S_tr$X
+  X_tr_2 <- split_result_train$S_te$X
+  P_tr_1 <- split_result_train$S_tr$P
+  P_tr_2 <- split_result_train$S_te$P
+  
+  
+                                     
+  # Extract PLS components (here, we predict components for both tr_2 subsample that is used by the GRF
+  # and evaluation set used for calculating conditional average policy effects)
+  C_list <- PLS_predict_components(Y_tr = Y_tr_1,  P_tr = P_tr_1,
+                                   X_tr = X_tr_1, X_te = X_tr_2, X_eval = X_te,
                                    seed = seed) 
   
   CATE_true_te <- split_result$S_te$tau_true
   
+  
+  
   # Combine components (handle NULL cases)
-  C_tr <- cbind(C_list$C_effect_tr, C_list$C_assignment_tr)
-  C_te <- cbind(C_list$C_effect_te, C_list$C_assignment_te)
+  C_tr_1 <- cbind(C_list$C_effect_tr, C_list$C_assignment_tr)
+  C_tr_2 <- cbind(C_list$C_effect_te, C_list$C_assignment_te)
+  C_te <- cbind(C_list$C_effect_eval, C_list$C_assignment_eval) 
+  
   
   
   # Handle case where all components are NULL (ncomp = 0)
-  if (is.null(C_tr) || is.null(C_te)) {
+  if (is.null(C_tr_1) || is.null(C_tr_2)) {
     warning("No PLS components extracted (ncomp = 0). Using original covariates.")
-    C_tr <- X_tr
+    C_tr_1 <- X_tr_1
+    C_tr_2 <- X_tr_2
     C_te <- X_te
   }
   
   # Fit causal forest with PLS components
-  cf_model_C <- fit_GRF(X_matrix = C_tr, 
-                        Y_vector = Y_tr, 
-                        P_vector = P_tr,
+  cf_model_C <- fit_GRF(X_matrix = C_tr_2, 
+                        Y_vector = Y_tr_2, 
+                        P_vector = P_tr_2,
                         num.trees = num.trees,
                         min.node.size = min.node.size,
                         honesty = honesty)
@@ -284,9 +321,9 @@ forestPLS <- function(Y = Y,
   
   if (run_grf){
   ## Now fit for X 
-  cf_model_X <- fit_GRF(X_matrix = X_tr, 
-                        Y_vector = Y_tr, 
-                        P_vector = P_tr, 
+  cf_model_X <- fit_GRF(X_matrix = X_tr_2, 
+                        Y_vector = Y_tr_2, 
+                        P_vector = P_tr_2, 
                         num.trees = num.trees, 
                         min.node.size = min.node.size,
                         honesty = honesty)
@@ -308,12 +345,15 @@ forestPLS <- function(Y = Y,
   # Return all requested outputs
   return(list(
     # Components (both types)
-    C_effect_tr = C_list$C_effect_tr,
-    C_effect_te = C_list$C_effect_te,
-    C_assignment_tr = C_list$C_assignment_tr,
-    C_assignment_te = C_list$C_assignment_te,
-    C_tr = C_tr,  # Combined components (train)
-    C_te = C_te,  # Combined components (test)
+    C_effect_tr_1 = C_list$C_effect_tr,
+    C_effect_tr_2 = C_list$C_effect_te,
+    C_effect_te = C_list$C_effect_eval,
+    C_assignment_tr_1 = C_list$C_assignment_tr,
+    C_assignment_tr_2 = C_list$C_assignment_te,
+    C_assignment_te = C_list$C_assignment_eval,
+    C_tr_1 = C_tr_1,  # Combined components (train 1)
+    C_tr_2 = C_tr_2,  # Combined components (train 2)
+    C_te = C_te,     # Combined components (test/evaluation sample)
     
     # Train and test variables
     Y_tr = Y_tr,

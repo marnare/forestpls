@@ -437,7 +437,7 @@ display: none;
 
 
 <h1 class="title toc-ignore">Simuation Designs</h1>
-<h4 class="date">31 December, 2025</h4>
+<h4 class="date">03 January, 2026</h4>
 
 </div>
 
@@ -451,10 +451,8 @@ libraries</a></li>
 <ul>
 <li><a href="#split-the-data" id="toc-split-the-data">Split the
 data</a></li>
-</ul></li>
-<li><a href="#simulate-data-sets" id="toc-simulate-data-sets">simulate
-data sets</a>
-<ul>
+<li><a href="#simulate-data" id="toc-simulate-data">Simulate
+data</a></li>
 <li><a href="#grf-with-dimension-reduction" id="toc-grf-with-dimension-reduction">GRF with dimension
 reduction</a></li>
 </ul></li>
@@ -622,45 +620,8 @@ source(&quot;src/simulate_data.R&quot;)</code></pre>
 # tau_true &lt;- sim$tau_true
 # </code></pre>
 </div>
-</div>
-<div id="simulate-data-sets" class="section level1">
-<h1>simulate data sets</h1>
-<pre class="r"><code>run_chunk &lt;- FALSE
-
-if (run_chunk) {
-out_dir &lt;- &quot;simulated_data/&quot;
-dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-
-seed &lt;- 2321
-R &lt;- 300
-
-type &lt;- c(&quot;t3&quot;, &quot;mixture&quot;, &quot;het_t&quot;)
-sample_sizes &lt;- c(500, 1000, 2000)
-covariate_number &lt;- c(5, 10, 15) # equivalent to 15, 20, 45 covariates of each type
-
-for (t in type) {
-  for (n in sample_sizes) {
-    for (p in covariate_number) {
-
-      sims &lt;- lapply(seq_len(R), function(r) {
-        simulate_policy_data(
-          N = n,
-          noise = t,
-          effect_noise = t,
-          treat_mech = &quot;logit&quot;,
-          p_cont = p, p_bin = p, p_cnt = p,
-          seed = seed + r
-        )
-      })
-
-      file_path &lt;- file.path(out_dir, sprintf(&quot;sim_%s_N%d_p%d.rds&quot;, t, n, p))
-      saveRDS(sims, file = file_path)
-    }
-  }
-}
-
-
-}</code></pre>
+<div id="simulate-data" class="section level2">
+<h2>Simulate data</h2>
 <pre class="r"><code>run_chunk &lt;- FALSE
 
 if (run_chunk){
@@ -670,20 +631,20 @@ dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 seed &lt;- 2321
 R &lt;- 300
 
-type &lt;- c(&quot;t3&quot;, &quot;cauchy&quot;, &quot;mixture&quot;, &quot;het_t&quot;)
-sample_sizes &lt;- c(500, 1000, 2000)
+type &lt;- c(&quot;t3&quot;,&quot;mixture&quot;, &quot;het_t&quot;)
+sample_sizes &lt;- c(1000, 2000, 3000)
 covariate_number &lt;- c(5, 10, 15)  # equivalent to 15, 30, 45 covariates of each type
 
 for (n in sample_sizes) {
   for (p in covariate_number) {
-    
+
     # Initialize list to store all types for this (N, p) combination
     all_types_data &lt;- list()
-    
+
     # Simulate for each type
     for (t in type) {
       cat(sprintf(&quot;Simulating: Type=%s, N=%d, p=%d, R=%d\n&quot;, t, n, p, R))
-      
+
       # Simulate R datasets for this type
       sims &lt;- lapply(seq_len(R), function(r) {
         simulate_policy_data(
@@ -691,28 +652,29 @@ for (n in sample_sizes) {
           noise = t,
           effect_noise = t,
           treat_mech = &quot;logit&quot;,
-          p_cont = p, 
-          p_bin = p, 
+          p_cont = p,
+          p_bin = p,
           p_cnt = p,
           seed = seed + r
         )
       })
-      
+
       # Store in list with type as key
       all_types_data[[t]] &lt;- sims
     }
-    
+
     # Save all types together in one file
     file_path &lt;- file.path(out_dir, sprintf(&quot;sim_N%d_p%d.rds&quot;, n, p))
     saveRDS(all_types_data, file = file_path)
-    
-    cat(sprintf(&quot;Saved: %s (contains %d types, %d datasets each)\n\n&quot;, 
+
+    cat(sprintf(&quot;Saved: %s (contains %d types, %d datasets each)\n\n&quot;,
                 file_path, length(type), R))
   }
 }
 
 
 }</code></pre>
+</div>
 <div id="grf-with-dimension-reduction" class="section level2">
 <h2>GRF with dimension reduction</h2>
 <pre class="r"><code># results &lt;- forestPLS(Y = Y,
@@ -733,7 +695,7 @@ for (n in sample_sizes) {
 <h1>Run forestPLS on All Datasets and Save Results</h1>
 <pre class="r"><code>set.seed(16112)
 out_dir &lt;- &quot;simulated_data/&quot;
-sample_sizes &lt;- c(500, 1000, 2000)
+sample_sizes &lt;- c(1000, 2000, 3000)
 covariate_number &lt;- c(5, 10, 15)
 type &lt;- c(&quot;t3&quot;, &quot;mixture&quot;, &quot;het_t&quot;)
 R &lt;- 300 ## 300 experiments
@@ -755,7 +717,7 @@ parallel::clusterEvalQ(cl, {
 })
 
 parallel::clusterEvalQ(cl, {
-  source(&quot;src/helpers.R&quot;)  # forestPLS() now returns tau_*_est as in patch above
+  source(&quot;src/helpers.R&quot;)  
   NULL
 })
 
@@ -793,7 +755,8 @@ for (n in sample_sizes) {
           P = d$P,
           X = d$X,
           tau_true = d$tau_true,
-          train_prop = 0.8,
+          train_prop = 0.7,
+          internal_train_prop = 0.5, 
           seed = 16112,
           num.trees = 2000,
           min.node.size = 5,
@@ -834,6 +797,229 @@ saveRDS(results_list, file = &quot;results/forestPLS_results.rds&quot;)
 } </code></pre>
 <div id="summarize-results" class="section level2">
 <h2>Summarize results</h2>
+<pre class="r"><code># # ============================================================================
+# # Create Three Separate Tables with Average % Improvement Column
+# # ============================================================================
+# 
+# # Load results
+# results_list &lt;- readRDS(&quot;results/forestPLS_results.rds&quot;)
+# 
+# # Configuration
+# sample_sizes &lt;- c(500, 1000, 2000)
+# covariate_number &lt;- c(5, 10, 15)
+# type &lt;- c(&quot;t3&quot;,  &quot;mixture&quot;, &quot;het_t&quot;)
+# type_display &lt;- c(&quot;t3&quot;,  &quot;Mixture&quot;, &quot;Heterogeneous&quot;)
+# 
+# # Metrics to create tables for
+# metrics_info &lt;- list(
+#   list(name = &quot;RMSE&quot;, full_metric = &quot;rmse_X&quot;, pls_metric = &quot;rmse_C&quot;, 
+#        label = &quot;rmse&quot;, caption = &quot;Root mean squared error (RMSE) between known and estimated policy effects across sample sizes, covariate dimensions, and treatment effect and noise types. Each cell reports the mean with standard error in parentheses, computed over 300 Monte Carlo replications.&quot;),
+#   list(name = &quot;KL divergence&quot;, full_metric = &quot;kl_X&quot;, pls_metric = &quot;kl_C&quot;, 
+#        label = &quot;kl&quot;, caption = &quot;Kullback-Leibler divergence between known and estimated policy effects across sample sizes, covariate dimensions, and treatment effect and noise types. Each cell reports the mean with standard error in parentheses, computed over 300 Monte Carlo replications.&quot;),
+#   list(name = &quot;Wasserstein distance&quot;, full_metric = &quot;w1_X&quot;, pls_metric = &quot;w1_C&quot;, 
+#               label = &quot;wass&quot;, caption = &quot;Wasserstein distance between known and estimated policy effects across sample sizes, covariate dimensions, and treatment effect and noise types. Each cell reports the mean with standard error in parentheses, computed over 300 Monte Carlo replications.&quot;)
+# )
+# 
+# # Create mapping
+# type_map &lt;- setNames(type_display, type)
+# 
+# # ============================================================================
+# # Functions to Extract Mean and SD
+# # ============================================================================
+# 
+# get_mean &lt;- function(results_list, n, p, t, metric) {
+#   key &lt;- paste0(&quot;N&quot;, n, &quot;_p&quot;, p)
+#   if (!is.null(results_list[[key]][[t]][[metric]])) {
+#     return(mean(results_list[[key]][[t]][[metric]], na.rm = TRUE))
+#   }
+#   return(NA)
+# }
+# 
+# get_sd &lt;- function(results_list, n, p, t, metric) {
+#   key &lt;- paste0(&quot;N&quot;, n, &quot;_p&quot;, p)
+#   if (!is.null(results_list[[key]][[t]][[metric]])) {
+#     return(sd(results_list[[key]][[t]][[metric]], na.rm = TRUE))
+#   }
+#   return(NA)
+# }
+# 
+# # Calculate % improvement: (Full - PLS) / Full * 100
+# calc_improvement &lt;- function(full_val, pls_val) {
+#   if (is.na(full_val) || is.na(pls_val) || full_val == 0) {
+#     return(NA)
+#   }
+#   return((full_val - pls_val) / full_val * 100)
+# }
+# 
+# # Calculate average % improvement across covariates
+# calc_avg_improvement &lt;- function(results_list, n, t, full_metric, pls_metric) {
+#   improvements &lt;- numeric(0)
+#   
+#   for (p in covariate_number) {
+#     full_mean &lt;- get_mean(results_list, n, p, t, full_metric)
+#     pls_mean &lt;- get_mean(results_list, n, p, t, pls_metric)
+#     full_sd &lt;- get_sd(results_list, n, p, t, full_metric)
+#     pls_sd &lt;- get_sd(results_list, n, p, t, pls_metric)
+#     
+#     # Improvement for mean
+#     if (!is.na(full_mean) &amp;&amp; !is.na(pls_mean)) {
+#       imp_mean &lt;- calc_improvement(full_mean, pls_mean)
+#       if (!is.na(imp_mean)) {
+#         improvements &lt;- c(improvements, imp_mean)
+#       }
+#     }
+#     
+#     # Improvement for SD
+#     if (!is.na(full_sd) &amp;&amp; !is.na(pls_sd)) {
+#       imp_sd &lt;- calc_improvement(full_sd, pls_sd)
+#       if (!is.na(imp_sd)) {
+#         improvements &lt;- c(improvements, imp_sd)
+#       }
+#     }
+#   }
+#   
+#   if (length(improvements) &gt; 0) {
+#     return(mean(improvements, na.rm = TRUE))
+#   }
+#   return(NA)
+# }
+# 
+# # ============================================================================
+# # Create Table for One Metric
+# # ============================================================================
+# 
+# create_table_for_metric &lt;- function(results_list, metric_info) {
+#   
+#   metric_name &lt;- metric_info$name
+#   metric_label &lt;- metric_info$label
+#   metric_caption &lt;- metric_info$caption
+#   full_metric &lt;- metric_info$full_metric
+#   pls_metric &lt;- metric_info$pls_metric
+#   
+#   n_p &lt;- length(covariate_number)
+#   
+#   # Start building table
+#   latex_lines &lt;- c(
+#     &quot;\\begin{table}[t]&quot;,
+#     &quot;\\centering&quot;,
+#     &quot;\\small&quot;,
+#     &quot;\\setlength{\\tabcolsep}{6pt}&quot;,
+#     &quot;\\renewcommand{\\arraystretch}{1.08}&quot;,
+#     sprintf(&quot;\\caption{%s}&quot;, metric_caption),
+#     sprintf(&quot;\\label{tab:%s_full_vs_pls}&quot;, metric_label),
+#     &quot;\\begin{tabular}{l*{6}{c}c}&quot;,
+#     &quot;\\toprule&quot;,
+#     &quot;&amp; \\multicolumn{3}{c}{GRF} &amp; \\multicolumn{3}{c}{Forest-PLS} &amp; Avg. \\% \\\\&quot;,
+#     &quot;\\cmidrule(lr){2-4}\\cmidrule(lr){5-7}&quot;,
+#     &quot;Sample size &amp; 15 &amp; 30 &amp; 45 &amp; 15 &amp; 30 &amp; 45 &amp; Improvement \\\\&quot;,
+#     &quot;\\midrule&quot;
+#   )
+#   
+#   # Data rows for each type
+#   for (type_idx in seq_along(type)) {
+#     t &lt;- type[type_idx]
+#     t_display &lt;- type_map[t]
+#     
+#     # Section header
+#     latex_lines &lt;- c(latex_lines, 
+#                      sprintf(&quot;\\multicolumn{8}{l}{%s} \\\\&quot;, t_display))
+#     
+#     # Rows for each sample size
+#     for (n in sample_sizes) {
+#       row_cells &lt;- character(6)
+#       
+#       # Full metrics
+#       for (j in seq_along(covariate_number)) {
+#         p &lt;- covariate_number[j]
+#         mean_val &lt;- get_mean(results_list, n, p, t, full_metric)
+#         sd_val &lt;- get_sd(results_list, n, p, t, full_metric)
+#         if (!is.na(mean_val) &amp;&amp; !is.na(sd_val)) {
+#           row_cells[j] &lt;- sprintf(&quot;\\makecell{%.3f\\\\(%.3f)}&quot;, mean_val, sd_val)
+#         } else {
+#           row_cells[j] &lt;- &quot;---&quot;
+#         }
+#       }
+#       
+#       # PLS metrics
+#       for (j in seq_along(covariate_number)) {
+#         p &lt;- covariate_number[j]
+#         mean_val &lt;- get_mean(results_list, n, p, t, pls_metric)
+#         sd_val &lt;- get_sd(results_list, n, p, t, pls_metric)
+#         if (!is.na(mean_val) &amp;&amp; !is.na(sd_val)) {
+#           row_cells[n_p + j] &lt;- sprintf(&quot;\\makecell{%.3f\\\\(%.3f)}&quot;, mean_val, sd_val)
+#         } else {
+#           row_cells[n_p + j] &lt;- &quot;---&quot;
+#         }
+#       }
+#       
+#       # Calculate average % improvement
+#       avg_improvement &lt;- calc_avg_improvement(results_list, n, t, full_metric, pls_metric)
+#       if (!is.na(avg_improvement)) {
+#         improvement_cell &lt;- sprintf(&quot;%.1f\\%%&quot;, avg_improvement)
+#       } else {
+#         improvement_cell &lt;- &quot;---&quot;
+#       }
+#       
+#       # Format row with line break
+#       row_part1 &lt;- paste(row_cells[1:3], collapse = &quot; &amp; &quot;)
+#       row_part2 &lt;- paste(row_cells[4:6], collapse = &quot; &amp; &quot;)
+#       latex_lines &lt;- c(latex_lines, 
+#                        paste0(n, &quot;  &amp; &quot;, row_part1),
+#                        paste0(&quot;     &amp; &quot;, row_part2, &quot; &amp; &quot;, improvement_cell, &quot; \\\\&quot;))
+#     }
+#     
+#     # Midrule between types
+#     if (type_idx &lt; length(type)) {
+#       latex_lines &lt;- c(latex_lines, &quot;\\midrule&quot;)
+#     }
+#   }
+#   
+#   # Close table
+#   latex_lines &lt;- c(latex_lines,
+#                    &quot;\\bottomrule&quot;,
+#                    &quot;\\end{tabular}&quot;,
+#                    &quot;\\end{table}&quot;)
+#   
+#   return(paste(latex_lines, collapse = &quot;\n&quot;))
+# }
+# 
+# # ============================================================================
+# # Generate Tables for Each Metric
+# # ============================================================================
+# 
+# output_path &lt;- &quot;results/&quot;
+# dir.create(output_path, showWarnings = FALSE, recursive = TRUE)
+# 
+# # Create and save table for each metric
+# all_tables &lt;- &quot;&quot;
+# for (metric_info in metrics_info) {
+#   metric_name &lt;- metric_info$name
+#   table_latex &lt;- create_table_for_metric(results_list, metric_info)
+#   
+#   # Save individual file
+#   filename &lt;- paste0(output_path, &quot;table_&quot;, metric_info$label, &quot;.tex&quot;)
+#   cat(table_latex, file = filename)
+#   cat(sprintf(&quot;Saved table for %s to: %s\n&quot;, metric_name, filename))
+#   
+#   # Add to combined file
+#   all_tables &lt;- paste0(all_tables, 
+#                        sprintf(&quot;%% Table for %s\n&quot;, metric_name),
+#                        table_latex,
+#                        &quot;\n\n&quot;)
+# }
+# 
+# # # Save all tables in one file
+# cat(all_tables, file = paste0(output_path, &quot;all_three_tables.tex&quot;))
+# cat(sprintf(&quot;Saved all tables to: %sall_three_tables.tex\n&quot;, output_path))
+# 
+# #Display tables
+# cat(&quot;\n=== Generated Tables ===\n\n&quot;)
+# for (metric_info in metrics_info) {
+#   cat(sprintf(&quot;--- Table for %s ---\n&quot;, metric_info$name))
+#   cat(create_table_for_metric(results_list, metric_info))
+#   cat(&quot;\n\n&quot;)
+# }
+# </code></pre>
 <pre class="r"><code># ============================================================================
 # Create Three Separate Tables with Average % Improvement Column
 # ============================================================================
@@ -842,10 +1028,10 @@ saveRDS(results_list, file = &quot;results/forestPLS_results.rds&quot;)
 results_list &lt;- readRDS(&quot;results/forestPLS_results.rds&quot;)
 
 # Configuration
-sample_sizes &lt;- c(500, 1000, 2000)
+sample_sizes &lt;- c(1000, 2000, 3000)
 covariate_number &lt;- c(5, 10, 15)
-type &lt;- c(&quot;t3&quot;,  &quot;mixture&quot;, &quot;het_t&quot;)
-type_display &lt;- c(&quot;t3&quot;,  &quot;Mixture&quot;, &quot;Heterogeneous&quot;)
+type &lt;- c(&quot;t3&quot;, &quot;mixture&quot;, &quot;het_t&quot;)
+type_display &lt;- c(&quot;Student-t&quot;, &quot;Mixture&quot;, &quot;Heteroskedastic&quot;)
 
 # Metrics to create tables for
 metrics_info &lt;- list(
@@ -854,7 +1040,7 @@ metrics_info &lt;- list(
   list(name = &quot;KL divergence&quot;, full_metric = &quot;kl_X&quot;, pls_metric = &quot;kl_C&quot;, 
        label = &quot;kl&quot;, caption = &quot;Kullback-Leibler divergence between known and estimated policy effects across sample sizes, covariate dimensions, and treatment effect and noise types. Each cell reports the mean with standard error in parentheses, computed over 300 Monte Carlo replications.&quot;),
   list(name = &quot;Wasserstein distance&quot;, full_metric = &quot;w1_X&quot;, pls_metric = &quot;w1_C&quot;, 
-              label = &quot;wass&quot;, caption = &quot;Wasserstein distance between known and estimated policy effects across sample sizes, covariate dimensions, and treatment effect and noise types. Each cell reports the mean with standard error in parentheses, computed over 300 Monte Carlo replications.&quot;)
+       label = &quot;wass&quot;, caption = &quot;Wasserstein distance between known and estimated policy effects across sample sizes, covariate dimensions, and treatment effect and noise types. Each cell reports the mean with standard error in parentheses, computed over 300 Monte Carlo replications.&quot;)
 )
 
 # Create mapping
@@ -888,37 +1074,30 @@ calc_improvement &lt;- function(full_val, pls_val) {
   return((full_val - pls_val) / full_val * 100)
 }
 
-# Calculate average % improvement across covariates
+# Calculate average % improvement across covariates (using MEANS ONLY)
 calc_avg_improvement &lt;- function(results_list, n, t, full_metric, pls_metric) {
   improvements &lt;- numeric(0)
   
+  # Calculate improvement for each covariate dimension using MEANS ONLY
   for (p in covariate_number) {
     full_mean &lt;- get_mean(results_list, n, p, t, full_metric)
     pls_mean &lt;- get_mean(results_list, n, p, t, pls_metric)
-    full_sd &lt;- get_sd(results_list, n, p, t, full_metric)
-    pls_sd &lt;- get_sd(results_list, n, p, t, pls_metric)
     
-    # Improvement for mean
-    if (!is.na(full_mean) &amp;&amp; !is.na(pls_mean)) {
-      imp_mean &lt;- calc_improvement(full_mean, pls_mean)
-      if (!is.na(imp_mean)) {
-        improvements &lt;- c(improvements, imp_mean)
-      }
-    }
-    
-    # Improvement for SD
-    if (!is.na(full_sd) &amp;&amp; !is.na(pls_sd)) {
-      imp_sd &lt;- calc_improvement(full_sd, pls_sd)
-      if (!is.na(imp_sd)) {
-        improvements &lt;- c(improvements, imp_sd)
+    # Calculate improvement from means only (not SDs)
+    if (!is.na(full_mean) &amp;&amp; !is.na(pls_mean) &amp;&amp; full_mean != 0) {
+      imp &lt;- calc_improvement(full_mean, pls_mean)
+      if (!is.na(imp)) {
+        improvements &lt;- c(improvements, imp)
       }
     }
   }
   
   if (length(improvements) &gt; 0) {
-    return(mean(improvements, na.rm = TRUE))
+    avg_improvement &lt;- mean(improvements, na.rm = TRUE)
+    se_improvement &lt;- sd(improvements, na.rm = TRUE) / sqrt(length(improvements))
+    return(list(mean = avg_improvement, se = se_improvement))
   }
-  return(NA)
+  return(list(mean = NA, se = NA))
 }
 
 # ============================================================================
@@ -989,10 +1168,10 @@ create_table_for_metric &lt;- function(results_list, metric_info) {
         }
       }
       
-      # Calculate average % improvement
-      avg_improvement &lt;- calc_avg_improvement(results_list, n, t, full_metric, pls_metric)
-      if (!is.na(avg_improvement)) {
-        improvement_cell &lt;- sprintf(&quot;%.1f\\%%&quot;, avg_improvement)
+      # Calculate average % improvement (using MEANS ONLY)
+      improvement_result &lt;- calc_avg_improvement(results_list, n, t, full_metric, pls_metric)
+      if (!is.na(improvement_result$mean)) {
+        improvement_cell &lt;- sprintf(&quot;%.1f\\%%&quot;, improvement_result$mean)
       } else {
         improvement_cell &lt;- &quot;---&quot;
       }
@@ -1047,18 +1226,18 @@ for (metric_info in metrics_info) {
 <pre><code>## Saved table for RMSE to: results/table_rmse.tex
 ## Saved table for KL divergence to: results/table_kl.tex
 ## Saved table for Wasserstein distance to: results/table_wass.tex</code></pre>
-<pre class="r"><code># # Save all tables in one file
-# cat(all_tables, file = paste0(output_path, &quot;all_three_tables.tex&quot;))
-# cat(sprintf(&quot;Saved all tables to: %sall_three_tables.tex\n&quot;, output_path))
-# 
-# #Display tables
-# cat(&quot;\n=== Generated Tables ===\n\n&quot;)
-# for (metric_info in metrics_info) {
-#   cat(sprintf(&quot;--- Table for %s ---\n&quot;, metric_info$name))
-#   cat(create_table_for_metric(results_list, metric_info))
-#   cat(&quot;\n\n&quot;)
-# }
-# </code></pre>
+<pre class="r"><code>cat(&quot;\n=== All tables generated ===\n&quot;)</code></pre>
+<pre><code>## 
+## === All tables generated ===</code></pre>
+<pre class="r"><code>cat(&quot;Note: Average % improvement is calculated using MEANS ONLY\n&quot;)</code></pre>
+<pre><code>## Note: Average % improvement is calculated using MEANS ONLY</code></pre>
+<pre class="r"><code>cat(&quot;The improvement is averaged across the three covariate dimensions (15, 30, 45)\n&quot;)</code></pre>
+<pre><code>## The improvement is averaged across the three covariate dimensions (15, 30, 45)</code></pre>
+<pre class="r"><code># Save all tables in one file
+cat(all_tables, file = paste0(output_path, &quot;all_three_tables.tex&quot;))
+cat(sprintf(&quot;Saved all tables to: %sall_three_tables.tex\n&quot;, output_path))</code></pre>
+<pre><code>## Saved all tables to: results/all_three_tables.tex</code></pre>
+<pre class="r"><code># </code></pre>
 </div>
 </div>
 
